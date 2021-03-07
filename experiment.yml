@@ -1,0 +1,123 @@
+# See the paper for experiment description
+
+#
+# General experiment parameters
+#
+
+# We fix random seed here
+random_seed: 45
+
+# Number of trial or runs to repeat the experiment
+run_times: 16
+
+
+# Models and their parameters to use
+# Any key in this object will trigger a corresponding model builder
+# The ``ridge_model`` inits a builder for an Sklearn RidgeCV model
+default_model: &default_params
+  ridge_model: {}
+
+
+# Datasets and their parameters (if any)
+# The ``make_regression`` key is handled by a builder that inits an sklearn ``make_regression``
+datasets: &datasets
+  make_regression: &dataset_regression
+    n_samples: 2000
+    n_features: 20
+    n_informative: 15
+    noise: 0.9
+
+
+#
+# Definition of experiment stages
+#
+
+# TODO
+single_model: &single_model !BasicStage
+  name: single_model
+  params:
+    model_params:
+      <<: *default_params
+    experiment:
+      train_size: 0.3
+    dataset:
+      <<: *datasets
+  outputs:
+    - !path
+      path: "./results/single_model"
+  script:
+    - >
+        python ./src/main.py single-model \
+               --model_params "${json(self.params.model_params)}" \
+               --params "${json(self.params.experiment)}" \
+               --dataset "${json(self.params.dataset)}" \
+               --folder "${self.outputs[0].path}" \
+               --random_seed "${root.random_seed}" \
+               --run_times "${root.run_times}"
+    - >
+        echo "${json(self.params)}" > "${self.outputs[0].path}/params.json"
+
+
+# TODO
+hidden_loops: &hidden_loops !BasicStage
+  name: hidden_loops
+  params: &hidden_loop_params
+    model_params:
+      <<: *default_params
+    dataset:
+      <<: *datasets
+    experiment:
+      adherence: 0.9
+      usage: 0.9
+      step: 100
+      train_size: 0.3
+  outputs:
+    - !path
+      path:  !line |
+              ./results/${self.name}/${root.random_seed}/
+              ${self.params.experiment.train_size}-
+              ${self.params.experiment.step}/
+              ${self.params.experiment.adherence}-
+              ${self.params.experiment.usage}
+
+  script:
+    - >
+      python ./src/main.py hidden-loop \
+                     --model_params "${json(self.params.model_params)}" \
+                     --params "${json(self.params.experiment)}" \
+                     --folder "${self.outputs[0].path}" \
+                     --dataset "${json(self.params.dataset)}" \
+                     --random_seed "${root.random_seed}" \
+                     --run_times "${root.run_times}"
+    - >
+      echo "${json(self.params)}" > "${self.outputs[0].path}/params.json"
+
+# This is basic pipeline to run our two stages in sequence
+full_run_experiment: !GenericPipeline
+  runs:
+    - *single_model
+    - *hidden_loops
+
+# This pipeline is intended to be run the run_experiment script
+# It receives the following parameters from the environment
+# ``env.adherence``
+# ``end.usage``
+# ``end.step``
+run_model_experiment: !GenericPipeline
+  runs:
+    # We define an anonymous inline stage that reuses our previous hidden_loops stage
+    # It is convenient to reuse the stage definition to change some of the parameters
+    - !BasicStage
+      <<: *hidden_loops
+      params:
+        <<: *hidden_loop_params
+        experiment:
+          train_size: 0.3
+          # for this pipeline we redefine some parameters
+          # and use the ones from the environment
+          # they will still be in the json dump
+          adherence: ${env.adherence}
+          usage: ${env.usage}
+          step: ${env.step}
+
+
