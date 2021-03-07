@@ -93,7 +93,7 @@ hidden_loops: &hidden_loops !BasicStage
       echo "${json(self.params)}" > "${self.outputs[0].path}/params.json"
 
 # This is basic pipeline to run our two stages in sequence
-full_run_experiment: !GenericPipeline
+pipeline: !GenericPipeline
   runs:
     - *single_model
     - *hidden_loops
